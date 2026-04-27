@@ -5,7 +5,12 @@ from st_supabase_connection import SupabaseConnection
 
 # 1. Initialize the Cloud Connection
 # This looks for the URL and Key in your Streamlit Secrets automatically
-conn = st.connection("supabase", type=SupabaseConnection)
+conn = st.connection(
+    "supabase", 
+    type=SupabaseConnection,
+    url=st.secrets["connections"]["supabase"]["url"],
+    key=st.secrets["connections"]["supabase"]["key"]
+)
 
 st.set_page_config(page_title="The Closer's Command Center", layout="wide")
 st.title("🏠 The Closer's Command Center")
