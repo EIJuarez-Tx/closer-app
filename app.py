@@ -16,14 +16,14 @@ st.set_page_config(page_title="The Closer's Command Center", layout="wide")
 st.title("🏠 The Closer's Command Center")
 
 # --- 2. Database Functions ---
+# --- 2. Database Functions ---
 def load_data():
-    # Fetch all rows from the 'deals' table in Supabase
-    # ttl="0" ensures we always get fresh data, not a cached version
-    response = conn.query("*", table="deals", ttl="0").execute()
+    # Use .table().select() instead of .query()
+    response = conn.table("deals").select("*").execute()
     return pd.DataFrame(response.data)
 
 def save_data(prop, close_date, comm):
-    # Insert a new row into the cloud database
+    # This part was already correct, but just to be safe:
     conn.table("deals").insert({
         "property": prop,
         "closing_date": str(close_date),
