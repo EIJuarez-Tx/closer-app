@@ -1,85 +1,85 @@
 import streamlit as st
 import pandas as pd
-import os
 from datetime import date
+from st_supabase_connection import SupabaseConnection
 
-DATA_FILE = "deals.csv"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
-        # Ensure date column is actual dates
-        df['Closing Date'] = pd.to_datetime(df['Closing Date']).dt.date
-        return df
-    return pd.DataFrame(columns=["Property", "Closing Date", "Commission"])
-
-def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
+# 1. Initialize the Cloud Connection
+# This looks for the URL and Key in your Streamlit Secrets automatically
+conn = st.connection("supabase", type=SupabaseConnection)
 
 st.set_page_config(page_title="The Closer's Command Center", layout="wide")
 st.title("🏠 The Closer's Command Center")
 
+# --- 2. Database Functions ---
+def load_data():
+    # Fetch all rows from the 'deals' table in Supabase
+    # ttl="0" ensures we always get fresh data, not a cached version
+    response = conn.query("*", table="deals", ttl="0").execute()
+    return pd.DataFrame(response.data)
+
+def save_data(prop, close_date, comm):
+    # Insert a new row into the cloud database
+    conn.table("deals").insert({
+        "property": prop,
+        "closing_date": str(close_date),
+        "commission": comm
+    }).execute()
+
+def delete_data(deal_id):
+    # Remove a specific deal by its unique ID
+    conn.table("deals").delete().eq("id", deal_id).execute()
+
+# --- 3. Main Dashboard Logic ---
 df = load_data()
 
-# --- Sidebar: Add New Deal ---
+# Sidebar for Input
 st.sidebar.header("Add New Transaction")
 with st.sidebar.form("input_form", clear_on_submit=True):
     prop_name = st.text_input("Property Address")
-    close_date = st.date_input("Closing Date", value=date.today())
+    close_dt = st.date_input("Closing Date", value=date.today())
     comm_val = st.number_input("Commission ($)", min_value=0, value=5000)
     submitted = st.form_submit_button("Add to Dashboard")
 
 if submitted and prop_name:
-    new_entry = pd.DataFrame([[prop_name, close_date, comm_val]], columns=["Property", "Closing Date", "Commission"])
-    df = pd.concat([df, new_entry], ignore_index=True)
-    save_data(df)
+    save_data(prop_name, close_dt, comm_val)
     st.rerun()
 
-# --- Dashboard Logic ---
+# Display Dashboard
 if not df.empty:
+    # Calculations
+    df['closing_date'] = pd.to_datetime(df['closing_date']).dt.date
     today = date.today()
-    df['Days to Close'] = df['Closing Date'].apply(lambda x: (x - today).days)
+    df['Days Left'] = df['closing_date'].apply(lambda x: (x - today).days)
     
-    # KPIs
+    # Key Metrics at the top
     col1, col2, col3 = st.columns(3)
     col1.metric("Active Deals", len(df))
-    col2.metric("Total Pipeline", f"${df['Commission'].sum():,.2f}")
+    col2.metric("Total Pipeline", f"${df['commission'].sum():,.2f}")
     
-    # Urgent Deals count
-    urgent = len(df[df['Days to Close'] <= 7])
-    col3.metric("Urgent (7 Days)", urgent, delta_color="inverse")
+    # Show count of urgent deals
+    urgent_count = len(df[df['Days Left'] <= 7])
+    col3.metric("Urgent (7 Days)", urgent_count)
 
+    st.divider()
     st.subheader("Current Inventory")
     
-    # Add a Delete column
+    # Dynamic Table Rows
     for index, row in df.iterrows():
         cols = st.columns([3, 2, 2, 2, 1])
-        cols[0].write(row['Property'])
-        cols[1].write(row['Closing Date'])
-        cols[2].write(f"${row['Commission']:,.2f}")
+        cols[0].write(row['property'])
+        cols[1].write(row['closing_date'])
+        cols[2].write(f"${row['commission']:,.2f}")
         
-        # Color coding the countdown
-        days = row['Days to Close']
+        # Color logic for urgency
+        days = row['Days Left']
         if days <= 7:
             cols[3].markdown(f":red[**{days} Days Left**]")
         else:
             cols[3].write(f"{days} Days Left")
-            
-        if cols[4].button("🗑️", key=f"del_{index}"):
-            df = df.drop(index)
-            save_data(df)
+        
+        # Delete Button
+        if cols[4].button("🗑️", key=f"del_{row['id']}"):
+            delete_data(row['id'])
             st.rerun()
-
-    st.markdown("---")
-    # Export capability
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Export to Excel (CSV)", data=csv, file_name="my_deals.csv", mime='text/csv')
-
 else:
-    st.info("Dashboard empty. Add a property in the sidebar to begin.")
-
-st.markdown("---")
-st.subheader("🤖 AI Document Assistant")
-contract_text = st.text_area("Paste contract text here...", height=150)
-if st.button("Generate AI Analysis Prompt"):
-    st.code(f"Analyze this real estate contract. List the top 3 red flags, all critical repair deadlines, and any hidden fees:\n\n{contract_text}")
+    st.info("Your cloud database is currently empty. Add your first deal in the sidebar!")
